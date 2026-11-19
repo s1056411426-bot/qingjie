@@ -1,0 +1,12 @@
+node_modules/
+.npm-cache/
+release/
+.test-data/
+.test-output/
+.builder-cache/
+.electron-cache/
+assets/ocr/*.traineddata.gz
+assets/icon.ico
+assets/icon.png
+assets/models.json
+*.log

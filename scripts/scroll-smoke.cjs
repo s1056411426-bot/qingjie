@@ -1,0 +1,17 @@
+const{_electron:electron}=require('playwright');const path=require('node:path');const fs=require('node:fs');const assert=require('node:assert/strict');
+const root=path.resolve(__dirname,'..'),out=path.join(root,'.test-output');fs.mkdirSync(out,{recursive:true});
+const env={...process.env,QINGJIE_TEST:'1',QINGJIE_DATA_DIR:path.join(root,'.test-data','scroll-'+Date.now())};delete env.ELECTRON_RUN_AS_NODE;
+async function main(){let app;try{
+  app=await electron.launch({executablePath:process.env.QINGJIE_EXE||require('electron'),args:process.env.QINGJIE_EXE?[]:[root],env,timeout:60000});const home=await app.firstWindow();await home.waitForSelector('#new-capture');
+  const fixturePromise=app.waitForEvent('window');
+  await app.evaluate(async({BrowserWindow,screen})=>{const d=screen.getPrimaryDisplay();const w=new BrowserWindow({x:d.bounds.x+30,y:d.bounds.y+40,width:680,height:650,frame:false,show:true,webPreferences:{nodeIntegration:false,contextIsolation:true}});globalThis.__fixture=w;await w.loadURL('data:text/html;charset=utf-8,'+encodeURIComponent('<html><body style="margin:0;background:white;font:22px sans-serif"><div style="padding:20px">'+Array.from({length:40},(_,i)=>'<div style="height:110px;border-bottom:2px solid #cbd9cf;display:flex;align-items:center;background:hsl('+((i*47)%360)+' 40% 94%);padding:10px"><strong style="font-size:38px;color:hsl('+((i*47)%360)+' 40% 30%)">'+(i+1)+'</strong><span style="padding-left:20px">Qingjie scroll capture row '+(i+1)+'<br>Different content for reliable matching.</span></div>').join('')+'</div></body></html>'));});
+  const fixture=await fixturePromise;await fixture.waitForSelector('strong');
+  const overlayPromise=app.waitForEvent('window');await home.evaluate(()=>window.qingjie.capture('scroll'));const overlay=await overlayPromise;await overlay.waitForSelector('#screen-canvas');await overlay.waitForFunction(()=>document.querySelector('#screen-canvas').width>0);
+  const info=await app.evaluate(({screen})=>({bounds:screen.getPrimaryDisplay().bounds,scale:screen.getPrimaryDisplay().scaleFactor}));
+  const controllerPromise=app.waitForEvent('window');await overlay.mouse.move(60,75);await overlay.mouse.down();await overlay.mouse.move(640,565,{steps:15});await overlay.mouse.up();const controller=await controllerPromise;await controller.waitForSelector('#scroll-status');
+  await fixture.waitForTimeout(1100);
+  for(let i=1;i<=3;i++){await fixture.evaluate(y=>window.scrollTo(0,y),i*160);await controller.waitForFunction(count=>document.querySelector('#scroll-status').textContent.includes(`已拼接 ${count} 屏`),i+1,{timeout:12000});}
+  await controller.screenshot({path:path.join(out,'06-scroll-controller.png')});await controller.locator('#scroll-done').click();await home.waitForSelector('#edit-canvas');const dimensions=await home.locator('#edit-canvas').evaluate(c=>({width:c.width,height:c.height}));assert.equal(dimensions.width,Math.round(580*info.scale));assert.equal(dimensions.height,Math.round((490+480)*info.scale));
+  await home.screenshot({path:path.join(out,'07-long-capture.png')});const url=await home.locator('#edit-canvas').evaluate(c=>c.toDataURL());fs.writeFileSync(path.join(out,'long-capture.png'),Buffer.from(url.split(',')[1],'base64'));fs.writeFileSync(path.join(out,'scroll-result.json'),JSON.stringify({passed:true,dimensions,scale:info.scale,stitchedFrames:4},null,2));console.log('PASS: actual screen scrolling joined 4 frames at native DPI:',dimensions);
+}finally{if(app)await app.close();}}
+main().catch(e=>{console.error(e);process.exitCode=1;});
